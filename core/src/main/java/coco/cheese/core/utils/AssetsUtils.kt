@@ -1,8 +1,10 @@
 package coco.cheese.core.utils
 
 import android.content.Context
+import android.util.Log
 import coco.cheese.core.Env
 import coco.cheese.core.interfaces.IBase
+import com.elvishew.xlog.XLog
 import okio.IOException
 import java.io.File
 import java.io.FileOutputStream
@@ -39,6 +41,7 @@ class AssetsUtils(private val env: Env) {
             return FilesUtils.get().copy(filePath, destPath)
         }
         if (isFile(newPath)) {
+            XLog.e("========1"+newPath+","+destPath)
             return copyFileToSD(newPath, destPath)
         }
         return copyFolderToSD(newPath, destPath)
@@ -87,20 +90,33 @@ class AssetsUtils(private val env: Env) {
 
     }
 
-    private fun copyFileToSD(fileName: String, destPath: String): Boolean {
-        val fileName_ = fileName
+    fun copyFileToSD(fileName: String, destPath: String): Boolean {
         val assetManager = env.context.assets
-        val destFile = File(destPath, fileName_)
         return try {
-            val inputStream = assetManager.open(fileName_)
-            val outputStream = FileOutputStream(destFile)
+            val inputStream = assetManager.open(fileName)
 
-            inputStream.use { input ->
-                outputStream.use { output ->
+            // 检查目标路径是否是目录
+            val destFile = if (File(destPath).isDirectory) {
+                // 从文件名中提取实际文件名
+                val actualFileName = fileName.substringAfterLast("/")
+                File(destPath, actualFileName) // 在目录下创建目标文件
+            } else {
+                File(destPath) // 如果不是目录，直接创建文件对象
+            }
+            XLog.e(destFile)
+
+            // 确保目标文件存在
+            if (!destFile.exists()) {
+                destFile.createNewFile() // 创建文件
+            }
+
+            // 写入文件
+            FileOutputStream(destFile).use { outputStream ->
+                inputStream.use { input ->
                     val buffer = ByteArray(1024)
                     var length: Int
                     while (input.read(buffer).also { length = it } > 0) {
-                        output.write(buffer, 0, length)
+                        outputStream.write(buffer, 0, length)
                     }
                 }
             }
@@ -112,24 +128,30 @@ class AssetsUtils(private val env: Env) {
         }
     }
 
+
     private fun copyFolderToSD(sourceFolder: String, destFolder: String): Boolean {
-
-        val sourceFolder_ = sourceFolder
-
-
         return try {
             val assetManager = env.context.assets
-            val files = assetManager.list(sourceFolder_) ?: return false
+            val files = assetManager.list(sourceFolder) ?: return false
 
-            val targetFolder = File(destFolder).apply {
-                if (exists()) deleteRecursively()
-                mkdirs()
+            // 从源文件夹获取目标文件夹的名称
+            val targetFolderName = File(sourceFolder).name
+            val targetFolder = File(destFolder, targetFolderName).apply {
+                if (!exists()) {
+                    mkdirs()
+                }
             }
+
             for (filename in files) {
-                val fullPath = "$sourceFolder_/$filename"
+                val fullPath = "$sourceFolder/$filename" // 源文件的完整路径
+
                 if (isFolder(fullPath)) {
-                    copyFolderToSD(fullPath, "$destFolder/$filename")
+                    Log.d("CopyFolder", "Copying folder: $fullPath")
+                    // 递归调用复制子文件夹
+                    copyFolderToSD(fullPath, targetFolder.absolutePath) // 传递目标文件夹的绝对路径
                 } else {
+                    Log.d("CopyFolder", "Copying file: $fullPath to ${File(targetFolder, filename).absolutePath}")
+                    // 复制文件
                     assetManager.open(fullPath).use { inputStream ->
                         File(targetFolder, filename).outputStream().use { outputStream ->
                             inputStream.copyTo(outputStream)
@@ -143,6 +165,7 @@ class AssetsUtils(private val env: Env) {
             false
         }
     }
+
 
     fun isFolder(folderPath: String): Boolean {
         val newPath = if (folderPath.startsWith("/")) {
@@ -163,6 +186,9 @@ class AssetsUtils(private val env: Env) {
         }
         return false
     }
+
+
+
 
     fun isFile(filePath: String): Boolean {
         val newPath = if (filePath.startsWith("/")) {
